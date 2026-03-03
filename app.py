@@ -1,48 +1,75 @@
 import streamlit as st
-import pandas as pd
+import requests
+import json
+import os
 
-st.title("AIESEC EXPA Helper – IGTa")
+# Constants
+BACKEND_URL = "http://localhost:8000/triage"
+FACILITIES_FILE = "facilities.json"
 
-uploaded_file = st.file_uploader(
-    "Upload Internship Master CSV",
-    type=["csv"]
-)
+# Function to load facilities from JSON file
+def load_facilities():
+    if os.path.exists(FACILITIES_FILE):
+        with open(FACILITIES_FILE, 'r') as f:
+            return json.load(f)
+    else:
+        return []
 
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    df.columns = df.columns.str.strip().str.lower()
+# Function to send POST request to backend
+def get_triage_data(text, lang):
+    payload = {"text": text, "lang": lang}
+    try:
+        response = requests.post(BACKEND_URL, json=payload)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error connecting to backend: {e}")
+        return None
 
-    sheet_row = st.number_input(
-        "Enter Sheet Row Number",
-        min_value=2,
-        step=1
-    )
+# Main Streamlit app
+def main():
+    st.title("SwasthAI – Community Health Assistant")
+    st.markdown("*Not medical advice. For awareness only.*")
 
-    if st.button("Load Opportunity"):
-        df_index = sheet_row - 2
+    # Text area for symptoms
+    user_input = st.text_area("Describe your symptoms", height=100)
 
-        if df_index < 0 or df_index >= len(df):
-            st.error("Invalid row number")
+    # Language selectbox
+    language = st.selectbox("Language", ["English", "Hindi"])
+
+    # Button to get guidance
+    if st.button("Get Guidance"):
+        if len(user_input.strip()) < 10:
+            st.warning("Please provide at least 10 characters describing your symptoms.")
         else:
-            # ✅ ROW IS CREATED HERE
-            row = df.iloc[df_index]
+            # Send request to backend
+            data = get_triage_data(user_input, language)
+            if data:
+                # Display preliminary guidance
+                st.subheader("Preliminary Guidance")
+                st.write(data.get("guidance", "No guidance available."))
 
-            # ✅ ALL USAGE OF `row` MUST BE BELOW THIS
-            title = row.get("opportunity title", "N/A")
-            duration = row.get("duration of internship", "N/A")
-            background = row.get("preferred academic background", "N/A")
+                # Display red flag alerts
+                red_flags = data.get("red_flags", [])
+                if red_flags:
+                    st.subheader("Red Flag Alerts")
+                    for alert in red_flags:
+                        st.error(f"⚠️ {alert}")
+                else:
+                    st.info("No red flag alerts.")
 
-            st.subheader("Preview")
+                # Display when to see a doctor
+                st.subheader("When to See a Doctor")
+                st.write(data.get("when_to_see_doctor", "No advice available."))
 
-            st.write(f"**Opportunity Title:** {title}")
-            st.write(f"**Duration:** {duration}")
-            st.write(f"**Preferred Background:** {background}")
+                # Display nearby public facilities
+                facilities = load_facilities()
+                if facilities:
+                    st.subheader("Nearby Public Facilities")
+                    for facility in facilities:
+                        st.write(f"- **{facility.get('name', 'Unknown')}**: {facility.get('address', 'Address not available')}")
+                else:
+                    st.info("No facilities data available.")
 
-            # stipend logic
-            if "13" in str(duration):
-                stipend = 6500
-            else:
-                stipend = 0
-
-            st.subheader("Logistics")
-            st.write(f"**Gross Salary:** INR {stipend} per month")
+if __name__ == "__main__":
+    main()
